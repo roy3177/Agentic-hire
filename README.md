@@ -11,6 +11,27 @@
   <p><em>The Agentic Hire Dashboard - AI-powered candidate screening</em></p>
 </div>
 
+**🌐 Live Demo:** [https://agentic-hire-psi.vercel.app/](https://agentic-hire-psi.vercel.app/)
+
+<div align="center">
+
+## Author
+
+<b>Roy Meoded</b><br>
+Computer Science Student &amp; Developer<br><br>
+
+<a href="https://github.com/roy3177">
+  <img src="https://img.shields.io/badge/GitHub-roy3177-181717?logo=github" alt="GitHub"/>
+</a>
+<a href="https://www.linkedin.com/in/roy-meoded">
+  <img src="https://img.shields.io/badge/LinkedIn-Roy%20Meoded-0A66C2?logo=linkedin" alt="LinkedIn"/>
+</a>
+<a href="mailto:roymeoded2512@gmail.com">
+  <img src="https://img.shields.io/badge/Email-contact-EA4335?logo=gmail&logoColor=white" alt="Email"/>
+</a>
+
+</div>
+
 ## 🏗️ Architecture Overview
 
 This project is structured as a Monorepo containing two distinct microservices:
