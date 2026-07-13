@@ -236,13 +236,6 @@ Visit http://localhost:3000 to access the platform.
 | Observability  | Langfuse (Tracing & Prompt Management)        |
 | Deployment     | Vercel (Frontend), Railway (Backend)          |
 
-## 📚 About This Project
-
-This repository serves as the official codebase for the book **"The Backdoor to High-Tech"** (הדלת האחורית להייטק).
-
-It demonstrates how to build production-grade AI systems, moving beyond simple scripts to full-stack, event-driven architectures.
-
-Developed by **Elite Juniors**.
 
 ## Author
 
@@ -269,4 +262,3 @@ This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-© 2026 Elite Juniors. All Rights Reserved.
