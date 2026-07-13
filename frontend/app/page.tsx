@@ -9,9 +9,9 @@ import {
     X,
     ArrowRight,
     Languages,
+    Filter,
     FileText,
     Briefcase,
-    CheckCircle2,
     Zap,
     BarChart3,
     ScanSearch,
@@ -24,7 +24,7 @@ import { useLanguage } from './i18n/LanguageContext';
 import { landingText } from './i18n/translations';
 
 const featureIcons = [ScanSearch, BrainCircuit, Zap, BarChart3];
-const agentIcons = [FileText, Briefcase, CheckCircle2];
+const agentIcons = [Filter, FileText, Briefcase, BrainCircuit];
 
 export default function LandingPage() {
     const [menuOpen, setMenuOpen] = useState(false);
@@ -162,7 +162,7 @@ export default function LandingPage() {
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         {t.agents.map((agent, i) => (
                             <AgentCard key={agent.step} step={agent.step} icon={agentIcons[i]} title={agent.title} description={agent.description} />
                         ))}

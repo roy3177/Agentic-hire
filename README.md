@@ -5,31 +5,31 @@
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-active-success.svg)
 ![Architecture](https://img.shields.io/badge/architecture-monorepo-orange.svg)
-
-<div align="center">
-  <img src="assets/agentic-hire-candidate.png" alt="Agentic Hire Dashboard" width="800" />
-  <p><em>The Agentic Hire Dashboard - AI-powered candidate screening</em></p>
-</div>
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11+-009688?logo=fastapi&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 
 **🌐 Live Demo:** [https://agentic-hire-psi.vercel.app/](https://agentic-hire-psi.vercel.app/)
 
+## Table of Contents
+
+- [Screenshots](#screenshots)
+- [Architecture Overview](#architecture-overview)
+- [Repository Structure](#repository-structure)
+- [Quick Start Guide](#quick-start-guide)
+- [Technology Stack](#technology-stack)
+- [About This Project](#about-this-project)
+- [Author](#author)
+- [License](#license)
+
+## Screenshots
+
 <div align="center">
-
-## Author
-
-<b>Roy Meoded</b><br>
-Software Developer<br><br>
-
-<a href="https://github.com/roy3177">
-  <img src="https://img.shields.io/badge/GitHub-roy3177-181717?logo=github" alt="GitHub"/>
-</a>
-<a href="https://www.linkedin.com/in/roy-meoded">
-  <img src="https://img.shields.io/badge/LinkedIn-Roy%20Meoded-0A66C2?logo=linkedin" alt="LinkedIn"/>
-</a>
-<a href="mailto:roymeoded2512@gmail.com">
-  <img src="https://img.shields.io/badge/Email-contact-EA4335?logo=gmail&logoColor=white" alt="Email"/>
-</a>
-
+  <img src="assets/dashboard-screenshot.png" alt="Agentic Hire Dashboard - Job Context and Upload" width="800" />
+  <p><em>Upload resumes against a job description and let the agent pipeline take over.</em></p>
+  <br/>
+  <img src="assets/analysis-result-screenshot.png" alt="Agentic Hire Analysis Report" width="800" />
+  <p><em>Every candidate gets a scored, reasoned recommendation from the AI agent team.</em></p>
 </div>
 
 ## 🏗️ Architecture Overview
@@ -38,13 +38,14 @@ This project is structured as a Monorepo containing two distinct microservices:
 
 1.  **Frontend (`/frontend`):**
     -   Built with **Next.js 16**, TypeScript, and Tailwind CSS.
-    -   Provides a responsive Dashboard for HR managers.
+    -   Marketing landing page plus a responsive Dashboard for HR managers.
     -   Handles drag-and-drop uploads and real-time status polling.
+    -   Bilingual (English/Hebrew) with full RTL support.
 
 2.  **Backend (`/backend`):**
     -   Built with **FastAPI** (Python 3.11+).
     -   **Asynchronous Engine:** Uses **Celery & Redis** to offload heavy AI processing.
-    -   **Agentic Framework:** Powered by **Agno** (formerly Phidata) to orchestrate AI teams.
+    -   **Agentic Framework:** Powered by **Agno** (formerly Phidata) to orchestrate a 4-agent pipeline (Triage → Parser → Analyst → Team Lead).
     -   **LLM:** Google Gemini 3.0 Pro/Flash.
     -   **Observability:** Full trace management and Prompt Engineering via **Langfuse**.
 
@@ -242,6 +243,29 @@ This repository serves as the official codebase for the book **"The Backdoor to 
 It demonstrates how to build production-grade AI systems, moving beyond simple scripts to full-stack, event-driven architectures.
 
 Developed by **Elite Juniors**.
+
+## Author
+
+<div align="center">
+
+<b>Roy Meoded</b><br>
+Software Developer<br><br>
+
+<a href="https://github.com/roy3177">
+  <img src="https://img.shields.io/badge/GitHub-roy3177-181717?logo=github" alt="GitHub"/>
+</a>
+<a href="https://www.linkedin.com/in/roy-meoded">
+  <img src="https://img.shields.io/badge/LinkedIn-Roy%20Meoded-0A66C2?logo=linkedin" alt="LinkedIn"/>
+</a>
+<a href="mailto:roymeoded2512@gmail.com">
+  <img src="https://img.shields.io/badge/Email-contact-EA4335?logo=gmail&logoColor=white" alt="Email"/>
+</a>
+
+</div>
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
