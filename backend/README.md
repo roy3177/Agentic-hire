@@ -100,10 +100,10 @@ Starts the Celery worker to process the AI tasks.
 
 ```bash
 # Linux/Mac
-uv run celery -A app.celery_worker.celery_app worker --loglevel=info
+uv run celery -A app.tasks.celery_app worker --loglevel=info
 
 # Windows
-uv run celery -A app.celery_worker.celery_app worker --pool=solo --loglevel=info
+uv run celery -A app.tasks.celery_app worker --pool=solo --loglevel=info
 ```
 
 ## 📚 API Documentation
@@ -126,7 +126,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 **Service 2 (Worker):** Deploys the Celery Worker.
 
 ```bash
-celery -A app.celery_worker.celery_app worker --loglevel=info
+celery -A app.tasks.celery_app worker --loglevel=info
 ```
 
 Ensure both services share the same `REDIS_URL` and `DATABASE_URL` environment variables.

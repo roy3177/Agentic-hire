@@ -18,7 +18,7 @@
 ## Author
 
 <b>Roy Meoded</b><br>
-Computer Science Student &amp; Developer<br><br>
+Software Developer<br><br>
 
 <a href="https://github.com/roy3177">
   <img src="https://img.shields.io/badge/GitHub-roy3177-181717?logo=github" alt="GitHub"/>
@@ -119,7 +119,80 @@ BACKEND_API_URL=http://localhost:8000
 
 > ⚠️ **Important:** For local testing, you can use Docker containers for Redis and PostgreSQL in the backend. However, for production or shared development, use the Railway credentials to ensure the backend connects to the proper infrastructure.
 
-### Step 1: Start the Backend
+### 🐳 Option A: Run Everything with Docker (Recommended)
+
+The whole stack (PostgreSQL, Redis, API, Celery Worker, and Frontend) runs from a single `docker-compose.yml` in `backend/`.
+
+#### Step 1 — Prerequisites
+
+Make sure **Docker Desktop** is installed and running:
+
+```bash
+docker --version
+docker compose version
+```
+
+#### Step 2 — Create the `.env` file
+
+Create `backend/.env` (see [Backend Environment](#backend-environment-env) above) with at least:
+
+```bash
+# backend/.env
+GOOGLE_API_KEY=your_gemini_api_key_here
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+> `DATABASE_URL` and `REDIS_URL` do **not** need to be set here — `docker-compose.yml` wires them automatically to the internal `db` and `redis` containers.
+
+#### Step 3 — Build and start all services
+
+```bash
+cd backend
+docker compose up --build
+```
+
+Add `-d` to run in the background: `docker compose up --build -d`.
+
+This builds and starts 5 containers:
+
+| Service  | Description          | URL                          |
+|----------|-----------------------|-------------------------------|
+| `db`     | PostgreSQL             | localhost:5432                |
+| `redis`  | Redis                  | localhost:6379                |
+| `api`    | FastAPI backend        | http://localhost:8000/docs    |
+| `worker` | Celery worker           | —                              |
+| `web`    | Next.js frontend       | http://localhost:3000         |
+
+The first build takes a few minutes (installing npm/Python dependencies); subsequent runs are much faster thanks to Docker's cache.
+
+#### Step 4 — Verify it's running
+
+- **Website:** [http://localhost:3000](http://localhost:3000)
+- **API docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+If running in the background, tail the logs with:
+
+```bash
+docker compose logs -f
+```
+
+#### Step 5 — Stop the stack
+
+```bash
+docker compose down
+```
+
+To also wipe the database volume and start fresh next time:
+
+```bash
+docker compose down -v
+```
+
+### Option B: Run Manually (without Docker)
+
+#### Step 1: Start the Backend
 
 (See `backend/README.md` for full details)
 
@@ -132,10 +205,10 @@ uv sync  # or pip install -r requirements.txt
 uv run python -m app.main
 
 # 3. Run the Celery Worker (Terminal B)
-uv run celery -A app.celery_worker.celery_app worker --loglevel=info
+uv run celery -A app.tasks.celery_app worker --loglevel=info
 ```
 
-### Step 2: Start the Frontend
+#### Step 2: Start the Frontend
 
 (See `frontend/README.md` for full details)
 

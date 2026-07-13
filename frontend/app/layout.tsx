@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { LanguageProvider } from "./i18n/LanguageContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,17 +18,32 @@ export const metadata: Metadata = {
   description: "Let Agentic HR help you find the right candidate for your job.",
 };
 
+const setInitialDirectionScript = `
+(function() {
+  try {
+    var lang = localStorage.getItem('agentic-hire-language');
+    if (lang === 'he') {
+      document.documentElement.lang = 'he';
+      document.documentElement.dir = 'rtl';
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: setInitialDirectionScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
       </body>
     </html>
   );
