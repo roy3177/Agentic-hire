@@ -7,9 +7,18 @@ The intelligent core of the Agentic Hire platform. This is a high-performance, a
 ![Celery](https://img.shields.io/badge/Celery-Async-green.svg)
 ![Langfuse](https://img.shields.io/badge/Langfuse-Observability-red.svg)
 
+## Table of Contents
+
+- [Key Capabilities](#key-capabilities)
+- [Tech Stack](#tech-stack)
+- [Setup & Installation](#setup--installation)
+- [Running the System](#running-the-system)
+- [API Documentation](#api-documentation)
+- [Deployment (Railway)](#deployment-railway)
+
 ## ⚡ Key Capabilities
 
-- **🕵️ Multi-Agent Architecture:** Orchestrated by **Agno**, featuring specialized agents (Resume Parser, Job Analyst, HR Team Lead).
+- **🕵️ Multi-Agent Architecture:** Orchestrated by **Agno**, a 4-agent pipeline — **Triage Agent** (fast relevance gate), **Resume Parser**, **Job Analyst**, and the **HR Team Lead** (final synthesis).
 - **🚀 Asynchronous Processing:** Uses **Celery & Redis** to handle heavy AI tasks in the background without blocking the API.
 - **🧬 Structured Outputs:** Guarantees strict JSON responses from LLMs using Pydantic schemas.
 - **🔭 Observability & Control:** Integrated with **Langfuse** for trace management and **Strict Prompt Engineering** (managed remotely).
