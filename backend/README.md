@@ -140,6 +140,3 @@ celery -A app.tasks.celery_app worker --loglevel=info
 
 Ensure both services share the same `REDIS_URL` and `DATABASE_URL` environment variables.
 
-## 🤝 Contribution
-
-Developed by **Elite Juniors**.
