@@ -109,6 +109,3 @@ Click **Deploy**.
 
 ---
 
-## 🤝 Contribution
-
-Developed by **Elite Juniors**.
