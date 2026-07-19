@@ -6,7 +6,6 @@ from langfuse import Langfuse  # Import the Langfuse SDK
 
 # Agno Imports
 from agno.agent import Agent
-from agno.team import Team
 from agno.models.google import Gemini
 from agno.db.postgres import PostgresDb
 
@@ -90,11 +89,24 @@ agent_db = PostgresDb(
 
 # --- Model Configuration ---
 # Gemini 3 Flash: Very fast, cheap, and suitable for Scale work
-model_fast = Gemini(id="gemini-3-flash-preview")
+# retries/delay_between_retries/exponential_backoff reuse Agno's built-in generic
+# ModelProviderError retry wrapper -- covers transient 429/5xx from Gemini, which
+# becomes more likely now that Parser+Analyst call this model concurrently.
+model_fast = Gemini(
+    id="gemini-3-flash-preview",
+    retries=3,
+    delay_between_retries=2,
+    exponential_backoff=True,
+)
 
 # Gemini 3.1 Pro: The smart model, with huge context window and high inference capabilities
 # Note: gemini-3-pro-preview was deprecated by Google (404 NOT_FOUND) - upgraded to the successor
-model_reasoning = Gemini(id="gemini-3.1-pro-preview")
+model_reasoning = Gemini(
+    id="gemini-3.1-pro-preview",
+    retries=3,
+    delay_between_retries=2,
+    exponential_backoff=True,
+)
 
 # --- Agents Configuration ---
 
@@ -137,20 +149,37 @@ triage_agent = Agent(
 )
 
 
-# --- Team Configuration ---
+# --- Synthesis Agent Configuration ---
 
-def get_hr_team(session_id: str):
+def get_synthesis_agent(session_id: str) -> Agent:
     """
-    Creates the HR Team using a dynamic prompt for the Team Lead.
-    """
+    Creates the final-synthesis Agent for a single resume-analysis session.
 
-    # Fetch Team Lead instructions dynamically
+    Replaces the previous Team-based get_hr_team(). A Team with
+    delegate_to_all_members=False (the old default here) drives its members
+    ONE AT A TIME through an internal delegate_task_to_member tool-call loop,
+    so the Pro leader model was invoked ~3x per resume (one delegation
+    decision per member, plus one final synthesis) -- and Parser/Analyst
+    never ran concurrently.
+
+    Now that Parser and Analyst are invoked directly and concurrently in
+    tasks.run_analysis_pipeline (via ThreadPoolExecutor), this factory only
+    builds a plain Agent that performs the FINAL synthesis step once both
+    members' outputs are already available -- so the Pro model is invoked
+    exactly once per resume.
+
+    Kept as a per-task factory (not a module-level singleton), matching the
+    previous get_hr_team pattern, since it's bound to a specific session_id
+    for DB-backed conversation state via agent_db.
+    """
+    # Fetch Team Lead instructions dynamically (same prompt name as before)
     # This will crash the specific task if the prompt cannot be fetched
     team_lead_instructions = get_prompt_content("hr-team-lead-instructions")
 
-    return Team(
-        name="HR Recruitment Team",
-        members=[resume_parser, job_analyst],
+    return Agent(
+        id="hr-synthesis-agent",
+        name="HR Synthesis Agent",
+        role="Synthesize the Resume Parser and Job Analyst outputs into the final structured hire/no-hire evaluation",
         model=model_reasoning,
         db=agent_db,
         session_id=session_id,

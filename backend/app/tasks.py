@@ -1,9 +1,13 @@
 import os
 import logging
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_EXCEPTION
 from celery import Celery
 from dotenv import load_dotenv
-from app.agents import get_hr_team, triage_agent
+from opentelemetry import trace as trace_api
+from opentelemetry import context as otel_context
+from app.agents import get_synthesis_agent, resume_parser, job_analyst, triage_agent
 from app.database import SessionLocal, AnalysisResult
 from app.schemas import CandidateEvaluation, TriageVerdict
 
@@ -21,6 +25,166 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
 )
+
+tracer = trace_api.get_tracer(__name__)
+
+
+def _run_agent_with_context(agent, prompt, parent_ctx):
+    """
+    Runs a sync agent call inside a ThreadPoolExecutor worker thread.
+
+    contextvars (which OpenTelemetry's context relies on) aren't inherited by
+    new OS threads the way they are by asyncio tasks, so without explicitly
+    attaching the parent span's context here, the auto-instrumented span for
+    this agent call would show up as an orphan/root span in Langfuse instead
+    of nesting under "full_pipeline".
+    """
+    token = otel_context.attach(parent_ctx)
+    try:
+        return agent.run(prompt)
+    finally:
+        otel_context.detach(token)
+
+
+def run_analysis_pipeline(session_id: str, resume_text: str, job_description: str) -> dict:
+    """
+    Triage -> (Resume Parser || Job Analyst) -> Synthesis.
+
+    Parser and Analyst are independent by role (Parser reads the resume,
+    Analyst reads the job description), so they run concurrently in two
+    threads. This intentionally uses plain sync agent.run() calls in
+    ThreadPoolExecutor rather than agent.arun()/asyncio: a previous attempt at
+    arun()-based concurrency hit repeated aiohttp disconnects and was slower,
+    root-caused to google-genai's async transport caching an aiohttp session
+    on our module-level singleton Gemini models, bound to whichever event
+    loop first touched it -- a fresh loop per Celery task invalidates it on
+    the next task. Threads running the existing sync HTTP path never touch
+    that transport at all, so this sidesteps the issue entirely.
+    """
+    pipeline_start = time.perf_counter()
+
+    with tracer.start_as_current_span("full_pipeline") as pipeline_span:
+        pipeline_span.set_attribute("session_id", session_id)
+        current_ctx = otel_context.get_current()
+
+        # --- Stage 1: Triage (sequential gate) ---
+        triage_start = time.perf_counter()
+        triage_prompt = f"Job Description:\n{job_description}\n\nResume:\n{resume_text}"
+        logger.info("Running triage check...")
+        triage_result = triage_agent.run(triage_prompt).content
+        triage_duration = time.perf_counter() - triage_start
+        pipeline_span.set_attribute("triage_duration", triage_duration)
+        logger.info(f"⏱️ triage_duration={triage_duration:.2f}s")
+
+        if isinstance(triage_result, TriageVerdict) and not triage_result.is_relevant:
+            logger.info(f"🚫 Triage screened out candidate: {triage_result.reason}")
+            final_json_dict = {
+                "candidate_name": triage_result.candidate_name,
+                "score": 0,
+                "key_strengths": [],
+                "concerns": [triage_result.reason],
+                "reasoning": f"Automatically screened out during triage: {triage_result.reason}",
+                "final_recommendation": "Reject",
+            }
+            pipeline_span.set_attribute("triage_screened_out", True)
+            total_duration = time.perf_counter() - pipeline_start
+            pipeline_span.set_attribute("total_duration", total_duration)
+            logger.info(f"⏱️ total_duration={total_duration:.2f}s (triage-only path)")
+            return final_json_dict
+
+        pipeline_span.set_attribute("triage_screened_out", False)
+
+        # --- Stage 2: Resume Parser + Job Analyst, in parallel threads ---
+        # Both agents receive the same full combined prompt the Team used to
+        # send them -- we can't see the actual Langfuse prompt text for
+        # either agent, so this keeps what each agent sees unchanged; only
+        # HOW they're called (direct + concurrent) changes.
+        combined_prompt = (
+            f"Here is the Job Description:\n{job_description}\n\n"
+            f"Here is the Candidate's Resume Content:\n{resume_text}\n\n"
+            f"Analyze and provide your structured output."
+        )
+
+        parallel_start = time.perf_counter()
+        # Not using ThreadPoolExecutor as a `with` block: its __exit__ calls
+        # shutdown(wait=True), which blocks for ALL submitted work to finish
+        # even if we already detected a failure below -- defeating the
+        # "don't wait for the slow straggler" goal. shutdown(wait=False)
+        # lets us return/raise immediately; the straggler thread still
+        # finishes in the background on its own, its result just discarded.
+        executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent-pipeline")
+        try:
+            parser_future = executor.submit(_run_agent_with_context, resume_parser, combined_prompt, current_ctx)
+            analyst_future = executor.submit(_run_agent_with_context, job_analyst, combined_prompt, current_ctx)
+
+            # Returns as soon as either future finishes by raising, without
+            # waiting for a slower straggler. Note a sync HTTP call already
+            # in flight in a thread can't be forcibly aborted -- the
+            # straggler simply keeps running and its result is discarded.
+            wait([parser_future, analyst_future], return_when=FIRST_EXCEPTION)
+
+            failures = []
+            for label, fut in (("Resume Parser", parser_future), ("Job Analyst", analyst_future)):
+                if fut.done() and fut.exception() is not None:
+                    failures.append(f"{label} stage failed: {fut.exception()}")
+            if failures:
+                raise RuntimeError("; ".join(failures))
+
+            parser_response = parser_future.result()
+            analyst_response = analyst_future.result()
+        finally:
+            executor.shutdown(wait=False)
+
+        parallel_stage_duration = time.perf_counter() - parallel_start
+        pipeline_span.set_attribute("parallel_stage_duration", parallel_stage_duration)
+        logger.info(
+            f"⏱️ parallel_stage_duration={parallel_stage_duration:.2f}s "
+            "(should be ≈ max(parser, analyst), not their sum)"
+        )
+
+        # --- Stage 3: Synthesis (Pro model, single call) ---
+        synthesis_start = time.perf_counter()
+        synthesis_agent = get_synthesis_agent(session_id=session_id)
+
+        # Generic, clearly-labeled format -- we can't see the actual
+        # hr-team-lead-instructions text, so this is a structurally-safe way
+        # to hand it both upstream outputs plus the original inputs. Sanity
+        # check evaluation quality against the old Team-mediated flow after
+        # shipping; tweak the Langfuse prompt if needed.
+        synthesis_prompt = (
+            "=== JOB DESCRIPTION ===\n"
+            f"{job_description}\n\n"
+            "=== CANDIDATE RESUME (raw text) ===\n"
+            f"{resume_text}\n\n"
+            "=== RESUME PARSER OUTPUT ===\n"
+            f"{str(parser_response.content)}\n\n"
+            "=== JOB ANALYST OUTPUT ===\n"
+            f"{str(analyst_response.content)}\n\n"
+            "Using all of the above, analyze and provide the structured evaluation."
+        )
+
+        logger.info("Sending synthesis prompt to AI...")
+        ai_output = synthesis_agent.run(synthesis_prompt).content
+        synthesis_duration = time.perf_counter() - synthesis_start
+        pipeline_span.set_attribute("synthesis_duration", synthesis_duration)
+        logger.info(f"⏱️ synthesis_duration={synthesis_duration:.2f}s")
+
+        # Parsing logic (same as the previous Team-based path)
+        if isinstance(ai_output, CandidateEvaluation):
+            final_json_dict = ai_output.model_dump()
+        elif isinstance(ai_output, dict):
+            final_json_dict = ai_output
+        else:
+            try:
+                final_json_dict = json.loads(str(ai_output))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                final_json_dict = {"error": "Parsing failed", "raw_content": str(ai_output)}
+
+        total_duration = time.perf_counter() - pipeline_start
+        pipeline_span.set_attribute("total_duration", total_duration)
+        logger.info(f"⏱️ total_duration={total_duration:.2f}s")
+
+        return final_json_dict
 
 
 # Note: The function receives resume_text instead of file_path
@@ -44,51 +208,8 @@ def process_resume_analysis(self, session_id: str, resume_text: str, job_descrip
             result_record.status = "processing"
             db.commit()
 
-        # 3. Triage gate: quickly screen out clearly irrelevant candidates
-        # before running the full (slower) team
-        triage_prompt = f"Job Description:\n{job_description}\n\nResume:\n{resume_text}"
-        logger.info("Running triage check...")
-        triage_result = triage_agent.run(triage_prompt).content
-
-        final_json_dict = {}
-
-        if isinstance(triage_result, TriageVerdict) and not triage_result.is_relevant:
-            logger.info(f"🚫 Triage screened out candidate: {triage_result.reason}")
-            final_json_dict = {
-                "candidate_name": triage_result.candidate_name,
-                "score": 0,
-                "key_strengths": [],
-                "concerns": [triage_result.reason],
-                "reasoning": f"Automatically screened out during triage: {triage_result.reason}",
-                "final_recommendation": "Reject",
-            }
-        else:
-            # 4. Running the AI Team (only for plausibly relevant candidates)
-            hr_team = get_hr_team(session_id=session_id)
-
-            prompt = (
-                f"Here is the Job Description:\n{job_description}\n\n"
-                f"Here is the Candidate's Resume Content:\n{resume_text}\n\n"
-                f"Analyze and provide the structured evaluation."
-            )
-
-            logger.info("Sending prompt to AI...")
-            # Note: arun() was tried here to run resume_parser/job_analyst concurrently,
-            # but the async transport hit repeated aiohttp disconnects in this environment
-            # and ended up slower (114-179s) than the sync path (~70s). Reverted to sync.
-            response = hr_team.run(prompt)
-            ai_output = response.content
-
-            # Parsing logic (same as you had)
-            if isinstance(ai_output, CandidateEvaluation):
-                final_json_dict = ai_output.model_dump()
-            elif isinstance(ai_output, dict):
-                final_json_dict = ai_output
-            else:
-                try:
-                    final_json_dict = json.loads(str(ai_output))
-                except:
-                    final_json_dict = {"error": "Parsing failed", "raw_content": str(ai_output)}
+        # Run the full Triage -> (Parser || Analyst) -> Synthesis pipeline
+        final_json_dict = run_analysis_pipeline(session_id, resume_text, job_description)
 
         # 5. Saving to database
         # Refresh the connection to ensure there are no conflicts
@@ -105,7 +226,7 @@ def process_resume_analysis(self, session_id: str, resume_text: str, job_descrip
                 concerns = "\n".join([f"- {s}" for s in final_json_dict.get('concerns', [])])
                 result_record.result_text = f"Score: {final_json_dict.get('score')}\nStrengths:\n{strengths}"
             else:
-                result_record.result_text = str(ai_output)
+                result_record.result_text = final_json_dict.get("raw_content", str(final_json_dict))
 
             db.commit()
             logger.info(f"✅ SUCCESS: Saved data for {session_id}")
