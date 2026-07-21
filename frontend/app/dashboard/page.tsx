@@ -13,7 +13,6 @@ import {
     X,
     Eye,
     Briefcase,
-    BrainCircuit,
     AlertCircle,
     TrendingUp,
     AlertTriangle,
@@ -235,7 +234,7 @@ export default function AgenticDashboard() {
                             {t.jobContextSubtitle}
                         </p>
                         <textarea
-                            className="w-full h-40 p-4 bg-slate-50/80 border border-slate-200/70 rounded-2xl shadow-inner focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm leading-relaxed transition-all duration-300 ease-in-out placeholder:text-gray-400"
+                            className="w-full h-40 p-4 bg-slate-50/80 border border-slate-200/70 rounded-2xl shadow-inner focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm leading-relaxed transition-all duration-300 ease-in-out text-gray-800 font-medium placeholder:text-gray-500 placeholder:font-normal"
                             placeholder={t.jobContextPlaceholder}
                             value={jobDescription}
                             onChange={(e) => setJobDescription(e.target.value)}
@@ -391,47 +390,66 @@ export default function AgenticDashboard() {
 
             {/* Analysis Detail Modal */}
             {selectedCandidate && (
-                <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-[fadeIn_0.2s_ease-out]">
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col border border-gray-100 animate-[scaleIn_0.25s_cubic-bezier(0.16,1,0.3,1)]">
+                <div className="fixed inset-0 bg-gray-900/70 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-[fadeIn_0.2s_ease-out]">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[88vh] overflow-hidden flex flex-col border border-gray-100 animate-[scaleIn_0.25s_cubic-bezier(0.16,1,0.3,1)]">
 
                         {/* Modal Header */}
-                        <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-gradient-to-r from-gray-50 to-blue-50/40">
-                            <div>
-                                <h2 className="text-2xl font-bold text-gray-900">{selectedCandidate.candidate_name}</h2>
-                                <p className="text-sm text-gray-500 mt-1">{t.modalReportSubtitle}</p>
-                            </div>
+                        <div className="relative px-8 pt-8 pb-6 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 overflow-hidden shrink-0">
+                            <div className="absolute -top-16 -end-16 w-56 h-56 bg-blue-500/20 rounded-full blur-3xl" />
+                            <div className="absolute -bottom-20 -start-10 w-48 h-48 bg-cyan-400/10 rounded-full blur-3xl" />
+
                             <button
                                 onClick={() => setSelectedCandidate(null)}
-                                className="p-2 rounded-full hover:bg-gray-200 transition-all duration-300 ease-in-out"
+                                className="absolute top-5 end-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300 ease-in-out"
                             >
-                                <X className="w-5 h-5 text-gray-500" />
+                                <X className="w-5 h-5 text-white" />
                             </button>
+
+                            <div className="relative flex items-center gap-5">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white font-bold text-2xl shadow-lg ring-4 ring-white/10 shrink-0">
+                                    {selectedCandidate.candidate_name?.charAt(0) || '?'}
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-blue-300 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                                        <Layers className="w-3.5 h-3.5" />
+                                        {t.modalReportSubtitle}
+                                    </p>
+                                    <h2 className="text-2xl font-bold text-white truncate">{selectedCandidate.candidate_name}</h2>
+                                </div>
+                            </div>
+
+                            <div className="relative flex items-center gap-3 mt-6">
+                                <ScoreGauge score={selectedCandidate.score || 0} />
+                                <RecommendationBadge rec={selectedCandidate.final_recommendation} />
+                            </div>
                         </div>
 
                         {/* Modal Content */}
-                        <div className="p-8 overflow-y-auto space-y-8">
+                        <div className="p-8 overflow-y-auto space-y-8 bg-slate-50/60">
 
                             {/* Summary Card */}
-                            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                            <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm shadow-blue-100/50">
                                 <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wide mb-3 flex items-center gap-2">
-                                    <BrainCircuit className="w-4 h-4" />
+                                    <Layers className="w-4 h-4" />
                                     {t.executiveSummary}
                                 </h3>
-                                <p className="text-blue-900/80 leading-relaxed">
+                                <p className="text-gray-600 leading-relaxed">
                                     {selectedCandidate.reasoning}
                                 </p>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {/* Strengths */}
-                                <div>
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
-                                        <TrendingUp className="w-4 h-4 text-emerald-500" />
+                                        <span className="p-1.5 rounded-lg bg-emerald-50">
+                                            <TrendingUp className="w-4 h-4 text-emerald-600" />
+                                        </span>
                                         {t.keyStrengths}
                                     </h3>
-                                    <ul className="space-y-3">
+                                    <ul className="space-y-2.5">
                                         {selectedCandidate.key_strengths?.map((s, i) => (
-                                            <li key={i} className="flex items-start gap-3 text-sm text-gray-600 bg-emerald-50/50 p-3 rounded-xl border border-emerald-100/50">
+                                            <li key={i} className="flex items-start gap-3 text-sm text-gray-600 bg-emerald-50/60 p-3 rounded-xl border-s-4 border-emerald-400">
                                                 <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
                                                 <span>{s}</span>
                                             </li>
@@ -440,14 +458,16 @@ export default function AgenticDashboard() {
                                 </div>
 
                                 {/* Concerns */}
-                                <div>
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
-                                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                                        <span className="p-1.5 rounded-lg bg-amber-50">
+                                            <AlertCircle className="w-4 h-4 text-amber-600" />
+                                        </span>
                                         {t.areasOfConcern}
                                     </h3>
-                                    <ul className="space-y-3">
+                                    <ul className="space-y-2.5">
                                         {selectedCandidate.concerns?.map((s, i) => (
-                                            <li key={i} className="flex items-start gap-3 text-sm text-gray-600 bg-amber-50/50 p-3 rounded-xl border border-amber-100/50">
+                                            <li key={i} className="flex items-start gap-3 text-sm text-gray-600 bg-amber-50/60 p-3 rounded-xl border-s-4 border-amber-400">
                                                 <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                                                 <span>{s}</span>
                                             </li>
@@ -458,8 +478,8 @@ export default function AgenticDashboard() {
                         </div>
 
                         {/* Modal Footer */}
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-                            <button onClick={() => setSelectedCandidate(null)} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-all duration-300 ease-in-out">
+                        <div className="p-6 border-t border-gray-100 bg-white flex justify-end gap-3 shrink-0">
+                            <button onClick={() => setSelectedCandidate(null)} className="px-5 py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-all duration-300 ease-in-out shadow-sm">
                                 {t.close}
                             </button>
                         </div>
@@ -497,6 +517,36 @@ function StatTile({ icon: Icon, label, value, accent, spin }: { icon: React.Elem
 }
 
 // --- Sub Components ---
+
+function ScoreGauge({ score }: { score: number }) {
+    const radius = 22;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (Math.min(Math.max(score, 0), 100) / 100) * circumference;
+
+    let ringColor = "stroke-rose-400";
+    if (score >= 80) ringColor = "stroke-emerald-400";
+    else if (score >= 60) ringColor = "stroke-amber-400";
+
+    return (
+        <div className="relative w-14 h-14 shrink-0">
+            <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r={radius} className="stroke-white/10" strokeWidth="5" fill="none" />
+                <circle
+                    cx="28" cy="28" r={radius}
+                    className={`${ringColor} transition-all duration-700 ease-out`}
+                    strokeWidth="5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
+                />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-white">{score}%</span>
+            </div>
+        </div>
+    );
+}
 
 function ScoreBadge({ score }: { score: number }) {
     let colorClass = "bg-gray-100 text-gray-700 ring-gray-200";
