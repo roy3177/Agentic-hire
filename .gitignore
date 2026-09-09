@@ -17,3 +17,6 @@
 # Jetbrains
 .idea/
 **/.idea/
+
+# Claude Code project skills/docs -- kept local only, not published to GitHub
+.claude/

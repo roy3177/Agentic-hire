@@ -1,0 +1,43 @@
+name: Frontend CI
+
+# Only runs when frontend/ code actually changes -- the other required
+# status check for the branch protection rule on `main` (see backend-ci.yml
+# for the backend one). Doesn't touch the existing Vercel auto-deploy, it
+# only gates what's allowed to merge into main.
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      # next build also type-checks the whole app -- catches TS errors that
+      # lint alone wouldn't. Needs no backend/env vars: BACKEND_API_URL is
+      # only read at request time by the API routes, not at build time.
+      - name: Build
+        run: npm run build
