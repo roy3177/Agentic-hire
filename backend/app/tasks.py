@@ -243,7 +243,7 @@ def process_resume_analysis(self, session_id: str, resume_text: str, job_descrip
                     err_record.status = "failed"
                     err_record.result_text = str(exc)
                     db.commit()
-            except:
+            except Exception:
                 pass
         raise self.retry(exc=exc, countdown=60)
     finally:

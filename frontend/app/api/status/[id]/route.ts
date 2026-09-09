@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
@@ -18,9 +18,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
         const response = await axios.get(`${BACKEND_API_URL}/status/${id}`);
         return NextResponse.json(response.data);
 
-    } catch (error: any) {
-        if (error.response) {
-            return NextResponse.json(error.response.data, { status: error.response.status });
+    } catch (error: unknown) {
+        if (axios.isAxiosError(error) && error.response) {
+            const axiosError = error as AxiosError;
+            return NextResponse.json(axiosError.response!.data, { status: axiosError.response!.status });
         }
         return NextResponse.json(
             { error: 'Backend unreachable' },

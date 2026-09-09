@@ -34,6 +34,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         const stored = readStoredLanguage();
+        // Deliberate: this is exactly the "hydrate from localStorage after
+        // mount" pattern from the comment above, not an accidental
+        // cascading-render bug -- localStorage isn't available during SSR,
+        // so it can't be read any earlier than this effect.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLanguageState(stored);
         applyDocumentDirection(stored);
     }, []);

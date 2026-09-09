@@ -52,10 +52,11 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json(data);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("❌ Proxy Internal Error:", error);
+        const message = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            { error: `Failed to connect to backend: ${error.message}` },
+            { error: `Failed to connect to backend: ${message}` },
             { status: 500 }
         );
     }
