@@ -1,11 +1,13 @@
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from typing import Optional
 import uuid
 import logging
 import uvicorn
 import io
 import pypdf
 import docx
+from docx.oxml.ns import qn
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from app.database import init_db, SessionLocal, AnalysisResult
@@ -34,6 +36,49 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+# --- One-page-resume enforcement ---
+MAX_RESUME_PAGES = 1
+
+
+def count_pages(filename: str, content: bytes) -> Optional[int]:
+    """
+    Best-effort page count, used to reject resumes over MAX_RESUME_PAGES.
+
+    - PDF: exact and reliable -- pypdf reports the real number of page
+      objects in the file, regardless of whether those pages contain a text
+      layer or are scanned images (this runs before the OCR fallback, so a
+      multi-page scanned resume gets rejected here instead of wasting a
+      Gemini OCR call on it).
+    - DOCX: NOT reliable. Word documents are reflowable -- there is no
+      stored "page count" until something actually renders/paginates the
+      file (fonts, margins, page size all affect it), which python-docx
+      does not do. This only counts explicit manual page breaks
+      (`<w:br w:type="page"/>`), so it can under-count (a doc that
+      naturally overflows to page 2 without one won't be caught) but never
+      over-counts -- if it reports >1, that's real evidence, not a guess.
+    - TXT: no notion of a "page" at all (no layout/formatting). Not
+      enforced.
+    """
+    try:
+        if filename.lower().endswith(".pdf"):
+            return len(pypdf.PdfReader(io.BytesIO(content)).pages)
+
+        if filename.lower().endswith(".docx"):
+            doc = docx.Document(io.BytesIO(content))
+            page_breaks = sum(
+                1
+                for br in doc.element.body.iter(qn("w:br"))
+                if br.get(qn("w:type")) == "page"
+            )
+            return page_breaks + 1
+
+    except Exception as e:
+        logger.error(f"Could not determine page count: {e}")
+        return None
+
+    return None
 
 
 # --- Extraction functions inside the API ---
@@ -71,6 +116,24 @@ async def extract_text_from_upload(file: UploadFile) -> tuple[str, bytes]:
 async def start_analysis(job_description: str = Form(...), file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
     logger.info(f"🔵 NEW REQUEST: {session_id}")
+
+    # 0. Reject multi-page resumes outright, before spending any effort on
+    # extraction/OCR. A resume should fit on one page -- see count_pages()
+    # for what's actually reliable per file type (PDF: exact; DOCX:
+    # best-effort; TXT: unenforced).
+    raw_bytes_preview = await file.read()
+    await file.seek(0)
+    page_count = count_pages(file.filename, raw_bytes_preview)
+    if page_count is not None and page_count > MAX_RESUME_PAGES:
+        logger.info(f"🚫 REJECTED {session_id}: resume has {page_count} pages (limit: {MAX_RESUME_PAGES})")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"⛔ REJECTED: Your resume has {page_count} pages. "
+                "A professional resume MUST fit on a SINGLE page. "
+                "Please condense it to one page and try again."
+            ),
+        )
 
     # 1. Extract the text in memory (without saving a file)
     resume_text, raw_bytes = await extract_text_from_upload(file)

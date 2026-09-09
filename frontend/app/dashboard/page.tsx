@@ -46,6 +46,7 @@ export default function AgenticDashboard() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [selectedCandidate, setSelectedCandidate] = useState<CandidateEvaluation | null>(null);
     const [jobDescription, setJobDescription] = useState<string>("");
+    const [uploadError, setUploadError] = useState<string | null>(null);
 
     // UI State for Drag & Drop
     const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -89,7 +90,23 @@ export default function AgenticDashboard() {
                         : t
                 ));
             } catch (error) {
-                console.error("Upload failed", error);
+                // This is an expected, handled failure (e.g. the backend
+                // rejecting a multi-page resume) -- console.warn with just the
+                // message, not console.error with the raw Error object, so
+                // Next.js's dev overlay doesn't flag it as an unhandled "Issue"
+                // (it tracks console.error calls carrying an Error instance).
+                const logMessage = error instanceof Error ? error.message : String(error);
+                console.warn("Upload failed:", logMessage);
+
+                // Surface the backend's rejection reason (e.g. multi-page resume,
+                // no extractable text) as a user-facing popup instead of letting
+                // it show up only as a console error / dev overlay.
+                let message: string = t.uploadErrorGeneric;
+                if (axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string') {
+                    message = error.response.data.detail;
+                }
+                setUploadError(message);
+
                 setTasks(prev => prev.map(t => t.filename === file.name ? { ...t, status: 'failed' } : t));
             }
         }
@@ -156,10 +173,15 @@ export default function AgenticDashboard() {
                         }));
                     }
                 } catch (err) {
-                    console.error("Polling error", err);
+                    // Same reasoning as the upload catch above: log just the
+                    // message via console.warn, not the raw Error object via
+                    // console.error, so a transient polling hiccup doesn't
+                    // pop the Next.js dev overlay.
+                    const logMessage = err instanceof Error ? err.message : String(err);
+                    console.warn("Polling error:", logMessage);
                 }
             }
-        }, 2000);
+        }, 1000); // was 2000ms -- halved so completed results show up to 1s sooner
         return () => clearInterval(interval);
     }, [tasks]);
 
@@ -230,11 +252,11 @@ export default function AgenticDashboard() {
                             </div>
                             <h2 className="text-lg font-semibold text-gray-900">{t.jobContextTitle}</h2>
                         </div>
-                        <p className="text-sm text-gray-500 mb-3">
+                        <p className="text-sm text-gray-700 mb-3">
                             {t.jobContextSubtitle}
                         </p>
                         <textarea
-                            className="w-full h-40 p-4 bg-slate-50/80 border border-slate-200/70 rounded-2xl shadow-inner focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm leading-relaxed transition-all duration-300 ease-in-out text-gray-800 font-medium placeholder:text-gray-500 placeholder:font-normal"
+                            className="w-full h-40 p-4 bg-slate-300 border border-slate-400 rounded-2xl shadow-inner focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm leading-relaxed transition-all duration-300 ease-in-out text-gray-900 font-medium placeholder:text-gray-600 placeholder:font-normal"
                             placeholder={t.jobContextPlaceholder}
                             value={jobDescription}
                             onChange={(e) => setJobDescription(e.target.value)}
@@ -480,6 +502,39 @@ export default function AgenticDashboard() {
                         {/* Modal Footer */}
                         <div className="p-6 border-t border-gray-100 bg-white flex justify-end gap-3 shrink-0">
                             <button onClick={() => setSelectedCandidate(null)} className="px-5 py-2.5 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-xl transition-all duration-300 ease-in-out shadow-sm">
+                                {t.close}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Upload Rejected Modal -- surfaces the backend's rejection reason
+                (multi-page resume, unreadable file, etc.) as a clear popup
+                instead of a silent console error. */}
+            {uploadError && (
+                <div className="fixed inset-0 bg-gray-900/70 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-[fadeIn_0.2s_ease-out]">
+                    <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-gray-100 animate-[scaleIn_0.25s_cubic-bezier(0.16,1,0.3,1)] text-center">
+                        <button
+                            onClick={() => setUploadError(null)}
+                            className="absolute top-4 end-4 p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all duration-300 ease-in-out"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="px-8 pt-10 pb-8">
+                            <div className="mx-auto w-16 h-16 rounded-full bg-rose-50 ring-8 ring-rose-50/50 flex items-center justify-center mb-5">
+                                <AlertTriangle className="w-8 h-8 text-rose-600" />
+                            </div>
+                            <h2 className="text-xl font-bold text-gray-900 mb-2.5">{t.uploadErrorTitle}</h2>
+                            <p className="text-gray-500 leading-relaxed">{uploadError}</p>
+                        </div>
+
+                        <div className="p-5 border-t border-gray-100 bg-slate-50/60">
+                            <button
+                                onClick={() => setUploadError(null)}
+                                className="w-full px-5 py-3 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all duration-300 ease-in-out shadow-sm shadow-rose-600/20"
+                            >
                                 {t.close}
                             </button>
                         </div>

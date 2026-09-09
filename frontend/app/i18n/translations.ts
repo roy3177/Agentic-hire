@@ -155,6 +155,9 @@ export const dashboardText: Record<Language, {
     areasOfConcern: string;
     close: string;
     recommendationLabels: Record<string, string>;
+    uploadErrorTitle: string;
+    uploadErrorGeneric: string;
+    startHereBadge: string;
 }> = {
     en: {
         tagline: 'AI Recruitment Copilot',
@@ -197,6 +200,9 @@ export const dashboardText: Record<Language, {
             'Caution': 'Caution',
             'Reject': 'Reject',
         },
+        uploadErrorTitle: 'Upload Rejected',
+        uploadErrorGeneric: 'Something went wrong while uploading this file. Please try again.',
+        startHereBadge: 'Start here',
     },
     he: {
         tagline: 'קופיילוט גיוס מבוסס AI',
@@ -239,5 +245,8 @@ export const dashboardText: Record<Language, {
             'Caution': 'זהירות',
             'Reject': 'לא מתאים/ה',
         },
+        uploadErrorTitle: 'ההעלאה נדחתה',
+        uploadErrorGeneric: 'משהו השתבש בהעלאת הקובץ. נסו שוב.',
+        startHereBadge: 'התחילו כאן',
     },
 };
