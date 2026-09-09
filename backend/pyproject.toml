@@ -24,3 +24,23 @@ dependencies = [
     "sqlalchemy>=2.0.45",
     "uvicorn>=0.40.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.6",
+]
+
+[tool.pytest.ini_options]
+# Lets tests import "app.*" without needing an installed package or a
+# conftest.py sys.path hack -- "." resolves relative to this pyproject.toml,
+# i.e. backend/, which is where the app/ package lives.
+pythonpath = ["."]
+
+[tool.ruff.lint]
+# Deliberately the classic, narrow flake8-equivalent set (syntax errors,
+# undefined names, unused imports/variables) rather than ruff's larger
+# opt-in rule catalog (security/blind-except/import-sorting/etc.) -- this is
+# meant to catch real breakage in CI, not to force a style rewrite of
+# existing code as a side effect of adding CI.
+select = ["E4", "E7", "E9", "F"]

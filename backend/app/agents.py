@@ -122,6 +122,27 @@ resume_parser = Agent(
     instructions=[resume_instructions],
 )
 
+# 1b. Resume OCR Agent
+# Fallback used only when the uploaded PDF has no extractable text layer
+# (e.g. a scanned/photographed resume). Hardcoded instructions on purpose --
+# this is a plain transcription utility, not part of the hire/no-hire
+# reasoning pipeline, so it isn't gated behind a Langfuse prompt like the
+# other agents (Strict Mode there would make this fallback itself depend on
+# yet another remote prompt existing).
+resume_ocr_agent = Agent(
+    id="resume-ocr",
+    name="Resume OCR",
+    role="Transcribe all readable text from a scanned/image-based resume PDF",
+    model=model_fast,
+    instructions=[
+        "You will be given a PDF that could not be read as plain text (likely a scanned "
+        "image). Carefully read every visible word on every page and transcribe it "
+        "verbatim as plain text, preserving line breaks between sections (name, contact "
+        "info, experience, education, skills, etc.) as best as you can. Output only the "
+        "transcribed text, with no commentary, preamble, or markdown formatting."
+    ],
+)
+
 # 2. Job Analyst Agent
 # This will crash immediately on startup if the prompt is missing
 job_instructions = get_prompt_content("job-analyst-instructions")

@@ -1,0 +1,47 @@
+name: Backend CI
+
+# Only runs when backend/ code actually changes -- this workflow is one of
+# the two required status checks for the branch protection rule on `main`
+# (see backend/.claude/skills/deployment-infra for the rest of the pipeline
+# this gates: Vercel/Railway auto-deploy on push to main is untouched by
+# this workflow, it only runs *before* a PR is allowed to merge).
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies (incl. dev group)
+        run: uv sync --group dev
+
+      # Deliberately NOT running the FastAPI app or importing app.agents here:
+      # agents.py fetches prompts from Langfuse at import time in Strict Mode
+      # (no fallback -- see the observability-langfuse skill) and needs a
+      # real GOOGLE_API_KEY + Langfuse credentials. Lint + the schema-only
+      # test suite below don't need any of that.
+      - name: Lint (ruff)
+        run: uv run ruff check app/
+
+      - name: Test (pytest)
+        run: uv run pytest tests/ -v
