@@ -41,10 +41,21 @@ export async function POST(request: NextRequest) {
         if (!response.ok) {
             const errorText = await response.text();
             console.error(`❌ Python Backend Error (${response.status}):`, errorText);
-            return NextResponse.json(
-                { error: `Backend failed: ${errorText}` },
-                { status: response.status }
-            );
+
+            // FastAPI's HTTPException body is {"detail": "..."} -- forward that
+            // `detail` field as-is instead of re-wrapping it into a generic
+            // `error` string, so the dashboard can show the backend's actual
+            // rejection reason (e.g. "resume has 2 pages") instead of a
+            // one-size-fits-all fallback message.
+            let detail = errorText;
+            try {
+                const parsed = JSON.parse(errorText);
+                if (typeof parsed?.detail === 'string') detail = parsed.detail;
+            } catch {
+                // errorText wasn't JSON -- fall back to the raw text above.
+            }
+
+            return NextResponse.json({ detail }, { status: response.status });
         }
 
         const data = await response.json();
