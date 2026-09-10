@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from typing import Optional
+import os
 import uuid
 import logging
 import uvicorn
@@ -9,7 +10,11 @@ import pypdf
 import docx
 from docx.oxml.ns import qn
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.database import init_db, SessionLocal, AnalysisResult
 from app.tasks import process_resume_analysis
 
@@ -31,6 +36,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Rate limiting ---
+# Backed by the same Redis instance already used as the Celery broker (see
+# app/tasks.py) so the limit is shared correctly across every API process --
+# an in-memory limiter would reset per-process and not actually coordinate
+# across multiple Uvicorn/Railway instances.
+# Caveat: get_remote_address reads request.client.host, which is only the
+# *real* client IP if the ASGI server is told to trust the platform's
+# reverse-proxy forwarded headers (e.g. `uvicorn --proxy-headers`). Without
+# that, every request behind Railway's proxy can appear to share one IP,
+# making the limit effectively global rather than per-visitor -- still a
+# real cap on total abuse, just not perfectly per-user in that setup.
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL)
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    # Matches the {"detail": "..."} shape FastAPI's own HTTPException uses,
+    # so the frontend's existing error-popup handling (see
+    # frontend/app/api/analyze/route.ts) shows this cleanly too.
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "⏳ Too many requests. Please wait a minute and try again."},
+    )
 
 
 @app.on_event("startup")
@@ -112,17 +143,31 @@ async def extract_text_from_upload(file: UploadFile) -> tuple[str, bytes]:
 
 # ---------------------------------
 
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB -- generous for a 1-page resume
+
+
 @app.post("/analyze")
-async def start_analysis(job_description: str = Form(...), file: UploadFile = File(...)):
+@limiter.limit("10/minute")
+async def start_analysis(request: Request, job_description: str = Form(...), file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
     logger.info(f"🔵 NEW REQUEST: {session_id}")
 
-    # 0. Reject multi-page resumes outright, before spending any effort on
+    # 0a. Reject oversized uploads outright -- before anything else touches
+    # the file (page-count parsing, text extraction, and especially the OCR
+    # fallback, which would otherwise ship a huge payload to Gemini).
+    raw_bytes_preview = await file.read()
+    await file.seek(0)
+    if len(raw_bytes_preview) > MAX_FILE_SIZE_BYTES:
+        logger.info(f"🚫 REJECTED {session_id}: file is {len(raw_bytes_preview)} bytes (limit: {MAX_FILE_SIZE_BYTES})")
+        raise HTTPException(
+            status_code=400,
+            detail=f"⛔ REJECTED: File too large ({len(raw_bytes_preview) / 1_048_576:.1f} MB). Max size is {MAX_FILE_SIZE_BYTES // 1_048_576} MB.",
+        )
+
+    # 0b. Reject multi-page resumes outright, before spending any effort on
     # extraction/OCR. A resume should fit on one page -- see count_pages()
     # for what's actually reliable per file type (PDF: exact; DOCX:
     # best-effort; TXT: unenforced).
-    raw_bytes_preview = await file.read()
-    await file.seek(0)
     page_count = count_pages(file.filename, raw_bytes_preview)
     if page_count is not None and page_count > MAX_RESUME_PAGES:
         logger.info(f"🚫 REJECTED {session_id}: resume has {page_count} pages (limit: {MAX_RESUME_PAGES})")
