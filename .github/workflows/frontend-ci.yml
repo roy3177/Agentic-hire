@@ -1,19 +1,16 @@
 name: Frontend CI
 
-# Only runs when frontend/ code actually changes -- the other required
+# Runs on every PR/push to main, unconditionally -- the other required
 # status check for the branch protection rule on `main` (see backend-ci.yml
-# for the backend one). Doesn't touch the existing Vercel auto-deploy, it
-# only gates what's allowed to merge into main.
+# for the backend one and for why this isn't path-filtered anymore: a
+# path-filtered required check simply never reports -- and never resolves
+# to "not required" -- on a PR that doesn't touch that path, permanently
+# blocking merge). Doesn't touch the existing Vercel auto-deploy, it only
+# gates what's allowed to merge into main.
 on:
   pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
   push:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
 
 jobs:
   lint-and-build:

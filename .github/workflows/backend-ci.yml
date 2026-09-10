@@ -1,20 +1,21 @@
 name: Backend CI
 
-# Only runs when backend/ code actually changes -- this workflow is one of
+# Runs on every PR/push to main, unconditionally -- this workflow is one of
 # the two required status checks for the branch protection rule on `main`
 # (see backend/.claude/skills/deployment-infra for the rest of the pipeline
 # this gates: Vercel/Railway auto-deploy on push to main is untouched by
 # this workflow, it only runs *before* a PR is allowed to merge).
+#
+# Deliberately NOT path-filtered (no `paths: backend/**`): a required status
+# check that's also path-filtered never reports on a PR that doesn't touch
+# that path, and GitHub then waits forever for a check that will never
+# arrive -- permanently blocking merge unless someone remembers to bypass
+# rules. The job itself is a few seconds either way, so always running it
+# costs little and avoids that trap entirely.
 on:
   pull_request:
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
   push:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
 
 jobs:
   lint-and-test:
