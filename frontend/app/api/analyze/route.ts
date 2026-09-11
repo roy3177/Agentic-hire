@@ -2,21 +2,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
-    console.log("🔵 API Route hit: Starting request proxy...");
+    console.log("");
+    console.log("📨 POST /api/analyze (proxy)");
 
     // 1. Read the environment variable
     const BACKEND_API_URL = process.env.BACKEND_API_URL;
 
     // Critical check - is the variable defined?
     if (!BACKEND_API_URL) {
-        console.error("❌ Critical Error: BACKEND_API_URL is undefined in Vercel!");
+        console.error("   ❌ EDGE CASE: BACKEND_API_URL is undefined in Vercel!");
+        console.log("   ↩ 500 — Server configuration error");
         return NextResponse.json(
             { error: 'Server configuration error: Missing Backend URL' },
             { status: 500 }
         );
     }
-
-    console.log(`🔗 Connecting to Backend at: ${BACKEND_API_URL}`);
 
     try {
         // 2. Read the form from the Frontend
@@ -24,11 +24,13 @@ export async function POST(request: NextRequest) {
         const file = formData.get('file');
 
         if (!file) {
-            console.error("❌ Error: No file found in request");
+            console.error("   🚫 EDGE CASE: no file in request");
+            console.log("   ↩ 400 Bad Request");
             return NextResponse.json({ error: 'No file provided' }, { status: 400 });
         }
 
-        console.log(`📄 File received: ${(file as File).name}, Size: ${(file as File).size} bytes`);
+        console.log(`   📄 file="${(file as File).name}" size=${(file as File).size}B`);
+        console.log(`   → forwarding to backend at ${BACKEND_API_URL}/analyze`);
 
         // 3. Send to Python (Fetch handles the multipart Content-Type/boundary
         // headers automatically — don't set that one manually). The internal
@@ -47,7 +49,8 @@ export async function POST(request: NextRequest) {
         // 4. Handle the response from Python
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`❌ Python Backend Error (${response.status}):`, errorText);
+            console.log(`   🚫 EDGE CASE: backend rejected the request (${response.status})`);
+            console.log(`   ↩ ${response.status} (forwarded from backend)`);
 
             // FastAPI's HTTPException body is {"detail": "..."} -- forward that
             // `detail` field as-is instead of re-wrapping it into a generic
@@ -66,12 +69,14 @@ export async function POST(request: NextRequest) {
         }
 
         const data = await response.json();
-        console.log("✅ Success! Data received from Python:", data);
+        console.log(`   ✅ backend accepted — session_id=${data.session_id}`);
+        console.log("   ↩ 200 OK");
 
         return NextResponse.json(data);
 
     } catch (error: unknown) {
-        console.error("❌ Proxy Internal Error:", error);
+        console.error("   ❌ EDGE CASE: proxy internal error:", error);
+        console.log("   ↩ 500 Internal Server Error");
         const message = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
             { error: `Failed to connect to backend: ${message}` },

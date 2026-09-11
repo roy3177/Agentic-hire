@@ -68,6 +68,27 @@ def send_security_alert(message: str) -> None:
         logger.error(f"Failed to send Discord security alert: {e}")
 
 
+def _log_banner(*lines: str) -> None:
+    """Full-width divider for pipeline start/end -- makes each session's
+    boundaries jump out in the worker terminal instead of blending into the
+    surrounding scroll. Each line is its own logger.info() call so every
+    line gets its own "INFO:app.tasks:" prefix, instead of one call with an
+    embedded newline (which would only prefix the first line)."""
+    logger.info("")
+    logger.info("=" * 70)
+    for line in lines:
+        logger.info(line)
+    logger.info("=" * 70)
+
+
+def _log_section(title: str) -> None:
+    """Short divider between pipeline stages (Triage / Parser+Analyst /
+    Synthesis) -- one per agent-stage, so it's visually obvious where one
+    agent's work ends and the next one's begins."""
+    logger.info("")
+    logger.info(f"── {title} ──")
+
+
 def _run_agent_with_context(agent, prompt, parent_ctx):
     """
     Runs a sync agent call inside a ThreadPoolExecutor worker thread.
@@ -106,7 +127,10 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         pipeline_span.set_attribute("session_id", session_id)
         current_ctx = otel_context.get_current()
 
+        _log_banner(f"🔵 PIPELINE START — session {session_id}")
+
         # --- Stage 1: Triage (sequential gate) ---
+        _log_section("STAGE 1/3 · TRIAGE (relevance gate) — agent: triage-agent")
         triage_start = time.perf_counter()
         # Explicit "untrusted data" labels + a closing marker around the raw
         # user-controlled content -- a defense-in-depth measure against
@@ -122,11 +146,11 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
             f"{resume_text}\n\n"
             "=== END OF UNTRUSTED DATA ==="
         )
-        logger.info("Running triage check...")
+        logger.info("   → sending job description + resume to triage-agent...")
         triage_result = triage_agent.run(triage_prompt).content
         triage_duration = time.perf_counter() - triage_start
         pipeline_span.set_attribute("triage_duration", triage_duration)
-        logger.info(f"⏱️ triage_duration={triage_duration:.2f}s")
+        logger.info(f"   ⏱  duration: {triage_duration:.2f}s")
 
         # Fired here (not just at the end) so an injection attempt is
         # reported even if the candidate is otherwise relevant enough to
@@ -135,6 +159,7 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         triage_flagged_injection = isinstance(triage_result, TriageVerdict) and triage_result.injection_detected
         if triage_flagged_injection:
             pipeline_span.set_attribute("injection_detected", True)
+            logger.info("   🚨 EDGE CASE: prompt-injection attempt detected — alerting Discord")
             send_security_alert(
                 f"🚨 **Prompt injection detected** (Triage stage)\n"
                 f"Session: `{session_id}`\n"
@@ -143,7 +168,8 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
             )
 
         if isinstance(triage_result, TriageVerdict) and not triage_result.is_relevant:
-            logger.info(f"🚫 Triage screened out candidate: {triage_result.reason}")
+            logger.info(f"   🚫 verdict: NOT RELEVANT — {triage_result.reason}")
+            logger.info("   ↪ EDGE CASE: screened out — skipping Parser/Analyst/Synthesis entirely")
             final_json_dict = {
                 "candidate_name": triage_result.candidate_name,
                 "score": 0,
@@ -156,12 +182,17 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
             pipeline_span.set_attribute("triage_screened_out", True)
             total_duration = time.perf_counter() - pipeline_start
             pipeline_span.set_attribute("total_duration", total_duration)
-            logger.info(f"⏱️ total_duration={total_duration:.2f}s (triage-only path)")
+            _log_banner(
+                f"⛔ PIPELINE END (screened out at Triage) — session {session_id} — "
+                f"total {total_duration:.2f}s"
+            )
             return final_json_dict
 
+        logger.info(f"   ✅ verdict: RELEVANT — {triage_result.reason if isinstance(triage_result, TriageVerdict) else 'n/a'}")
         pipeline_span.set_attribute("triage_screened_out", False)
 
         # --- Stage 2: Resume Parser + Job Analyst, in parallel threads ---
+        _log_section("STAGE 2/3 · RESUME PARSER ∥ JOB ANALYST (parallel) — agents: resume-parser, job-analyst")
         # Both agents receive the same full combined prompt the Team used to
         # send them -- we can't see the actual Langfuse prompt text for
         # either agent, so this keeps what each agent sees unchanged; only
@@ -178,6 +209,7 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         )
 
         parallel_start = time.perf_counter()
+        logger.info("   → resume-parser and job-analyst launched concurrently...")
         # Not using ThreadPoolExecutor as a `with` block: its __exit__ calls
         # shutdown(wait=True), which blocks for ALL submitted work to finish
         # even if we already detected a failure below -- defeating the
@@ -200,6 +232,7 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
                 if fut.done() and fut.exception() is not None:
                     failures.append(f"{label} stage failed: {fut.exception()}")
             if failures:
+                logger.info(f"   ❌ EDGE CASE: {'; '.join(failures)}")
                 raise RuntimeError("; ".join(failures))
 
             parser_response = parser_future.result()
@@ -209,12 +242,14 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
 
         parallel_stage_duration = time.perf_counter() - parallel_start
         pipeline_span.set_attribute("parallel_stage_duration", parallel_stage_duration)
+        logger.info("   ✅ both agents finished")
         logger.info(
-            f"⏱️ parallel_stage_duration={parallel_stage_duration:.2f}s "
-            "(should be ≈ max(parser, analyst), not their sum)"
+            f"   ⏱  duration: {parallel_stage_duration:.2f}s "
+            "(≈ max(parser, analyst), not their sum, since they ran concurrently)"
         )
 
         # --- Stage 3: Synthesis (Pro model, single call) ---
+        _log_section("STAGE 3/3 · SYNTHESIS (final evaluation) — agent: hr-synthesis-agent")
         synthesis_start = time.perf_counter()
         synthesis_agent = get_synthesis_agent(session_id=session_id)
 
@@ -243,11 +278,11 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
             "Using all of the above, analyze and provide the structured evaluation."
         )
 
-        logger.info("Sending synthesis prompt to AI...")
+        logger.info("   → sending both agents' outputs + original inputs to hr-synthesis-agent...")
         ai_output = synthesis_agent.run(synthesis_prompt).content
         synthesis_duration = time.perf_counter() - synthesis_start
         pipeline_span.set_attribute("synthesis_duration", synthesis_duration)
-        logger.info(f"⏱️ synthesis_duration={synthesis_duration:.2f}s")
+        logger.info(f"   ⏱  duration: {synthesis_duration:.2f}s")
 
         # Parsing logic (same as the previous Team-based path)
         if isinstance(ai_output, CandidateEvaluation):
@@ -255,14 +290,15 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         elif isinstance(ai_output, dict):
             final_json_dict = ai_output
         else:
+            logger.info("   ⚠️  EDGE CASE: output wasn't a CandidateEvaluation/dict -- trying to parse it as raw JSON")
             try:
                 final_json_dict = json.loads(str(ai_output))
             except (TypeError, ValueError, json.JSONDecodeError):
+                logger.info("   ❌ EDGE CASE: raw JSON parse also failed -- returning raw_content as-is")
                 final_json_dict = {"error": "Parsing failed", "raw_content": str(ai_output)}
 
         total_duration = time.perf_counter() - pipeline_start
         pipeline_span.set_attribute("total_duration", total_duration)
-        logger.info(f"⏱️ total_duration={total_duration:.2f}s")
 
         # Only alert here if Triage didn't already catch (and alert on) this
         # same run's injection attempt above -- avoids two Discord messages
@@ -270,6 +306,7 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         # enough to keep going through Parser/Analyst/Synthesis.
         if not triage_flagged_injection and final_json_dict.get("injection_detected"):
             pipeline_span.set_attribute("injection_detected", True)
+            logger.info("   🚨 EDGE CASE: prompt-injection attempt detected at Synthesis — alerting Discord")
             send_security_alert(
                 f"🚨 **Prompt injection detected** (Synthesis stage)\n"
                 f"Session: `{session_id}`\n"
@@ -277,20 +314,27 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
                 f"Reasoning: {final_json_dict.get('reasoning', '')}"
             )
 
+        _log_banner(
+            f"✅ PIPELINE COMPLETE — session {session_id} — total {total_duration:.2f}s",
+            f"   score={final_json_dict.get('score', 'n/a')}  "
+            f"recommendation={final_json_dict.get('final_recommendation', 'n/a')}",
+        )
+
         return final_json_dict
 
 
 # Note: The function receives resume_text instead of file_path
 @celery_app.task(name="process_resume_analysis", bind=True, max_retries=3)
 def process_resume_analysis(self, session_id: str, resume_text: str, job_description: str):
-    logger.info(f"🚀 Started Task for Session ID: {session_id}")
+    logger.info("")
+    logger.info(f"📥 TASK RECEIVED FROM CELERY — session {session_id}")
 
     db = SessionLocal()
 
     try:
         # Check that the text is not empty
         if not resume_text:
-            logger.error("Resume text is empty!")
+            logger.error(f"❌ EDGE CASE — session {session_id}: resume text is empty, aborting task")
             return {"error": "Resume text is empty"}
 
         # Update status in DB to Processing
@@ -322,12 +366,12 @@ def process_resume_analysis(self, session_id: str, resume_text: str, job_descrip
                 result_record.result_text = final_json_dict.get("raw_content", str(final_json_dict))
 
             db.commit()
-            logger.info(f"✅ SUCCESS: Saved data for {session_id}")
+            logger.info(f"💾 SAVED TO DB — session {session_id} — status=completed")
 
         return final_json_dict
 
     except Exception as exc:
-        logger.error(f"❌ Error: {exc}")
+        logger.error(f"❌ TASK ERROR — session {session_id}: {exc}")
         if 'db' in locals():
             db.rollback()
             try:
@@ -336,8 +380,10 @@ def process_resume_analysis(self, session_id: str, resume_text: str, job_descrip
                     err_record.status = "failed"
                     err_record.result_text = str(exc)
                     db.commit()
+                    logger.info(f"💾 SAVED TO DB — session {session_id} — status=failed")
             except Exception:
                 pass
+        logger.info(f"🔁 RETRYING — session {session_id} — in 60s (attempt {self.request.retries + 1}/{self.max_retries})")
         raise self.retry(exc=exc, countdown=60)
     finally:
         if 'db' in locals():
