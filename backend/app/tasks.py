@@ -2,6 +2,8 @@ import os
 import logging
 import json
 import time
+import urllib.request
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_EXCEPTION
 from celery import Celery
 from dotenv import load_dotenv
@@ -27,6 +29,43 @@ celery_app.conf.update(
 )
 
 tracer = trace_api.get_tracer(__name__)
+
+# --- Security alerting (Discord webhook) ---
+# Real-time notification for a *detected* prompt-injection attempt (the
+# injection_detected flag -- see app/schemas.py). Deliberately NOT wired up
+# for every 401/429 -- those are already logged and are noisy/low-signal
+# (a misconfigured client causes them too); this is only for the single
+# high-value, high-confidence signal.
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+
+def send_security_alert(message: str) -> None:
+    """
+    Fire-and-forget Discord notification. stdlib-only (urllib) -- a single
+    JSON POST doesn't need a new HTTP client dependency. Never raises: a
+    missing/failed webhook must never break the pipeline reporting on it.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning(f"DISCORD_WEBHOOK_URL not set -- security alert not sent: {message}")
+        return
+    try:
+        body = json.dumps({"content": message}).encode("utf-8")
+        req = urllib.request.Request(
+            DISCORD_WEBHOOK_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                # Discord sits behind Cloudflare, which blocks urllib's
+                # default "Python-urllib/x.y" User-Agent outright (HTTP 403,
+                # Cloudflare error 1010 -- a bot-signature block, nothing to
+                # do with the webhook itself). A normal-looking UA clears it.
+                "User-Agent": "Mozilla/5.0 (compatible; AgenticHire-SecurityBot/1.0)",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        logger.error(f"Failed to send Discord security alert: {e}")
 
 
 def _run_agent_with_context(agent, prompt, parent_ctx):
@@ -88,6 +127,20 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         triage_duration = time.perf_counter() - triage_start
         pipeline_span.set_attribute("triage_duration", triage_duration)
         logger.info(f"⏱️ triage_duration={triage_duration:.2f}s")
+
+        # Fired here (not just at the end) so an injection attempt is
+        # reported even if the candidate is otherwise relevant enough to
+        # keep going through Parser/Analyst/Synthesis -- is_relevant and
+        # injection_detected are independent signals.
+        triage_flagged_injection = isinstance(triage_result, TriageVerdict) and triage_result.injection_detected
+        if triage_flagged_injection:
+            pipeline_span.set_attribute("injection_detected", True)
+            send_security_alert(
+                f"🚨 **Prompt injection detected** (Triage stage)\n"
+                f"Session: `{session_id}`\n"
+                f"Candidate: {triage_result.candidate_name}\n"
+                f"Reason: {triage_result.reason}"
+            )
 
         if isinstance(triage_result, TriageVerdict) and not triage_result.is_relevant:
             logger.info(f"🚫 Triage screened out candidate: {triage_result.reason}")
@@ -210,6 +263,19 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         total_duration = time.perf_counter() - pipeline_start
         pipeline_span.set_attribute("total_duration", total_duration)
         logger.info(f"⏱️ total_duration={total_duration:.2f}s")
+
+        # Only alert here if Triage didn't already catch (and alert on) this
+        # same run's injection attempt above -- avoids two Discord messages
+        # for one underlying attempt when the candidate was also relevant
+        # enough to keep going through Parser/Analyst/Synthesis.
+        if not triage_flagged_injection and final_json_dict.get("injection_detected"):
+            pipeline_span.set_attribute("injection_detected", True)
+            send_security_alert(
+                f"🚨 **Prompt injection detected** (Synthesis stage)\n"
+                f"Session: `{session_id}`\n"
+                f"Candidate: {final_json_dict.get('candidate_name', 'unknown')}\n"
+                f"Reasoning: {final_json_dict.get('reasoning', '')}"
+            )
 
         return final_json_dict
 
