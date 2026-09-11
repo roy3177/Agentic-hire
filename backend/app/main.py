@@ -5,10 +5,6 @@ import os
 import uuid
 import logging
 import uvicorn
-import io
-import pypdf
-import docx
-from docx.oxml.ns import qn
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, Depends
 from fastapi.responses import JSONResponse
@@ -16,6 +12,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.database import init_db, SessionLocal, AnalysisResult
+from app.extraction import count_pages, extract_text_from_content, MAX_RESUME_PAGES, MAX_FILE_SIZE_BYTES
 from app.tasks import process_resume_analysis
 
 load_dotenv()
@@ -97,83 +94,6 @@ def startup():
     init_db()
 
 
-# --- One-page-resume enforcement ---
-MAX_RESUME_PAGES = 1
-
-
-def count_pages(filename: str, content: bytes) -> Optional[int]:
-    """
-    Best-effort page count, used to reject resumes over MAX_RESUME_PAGES.
-
-    - PDF: exact and reliable -- pypdf reports the real number of page
-      objects in the file, regardless of whether those pages contain a text
-      layer or are scanned images (this runs before the OCR fallback, so a
-      multi-page scanned resume gets rejected here instead of wasting a
-      Gemini OCR call on it).
-    - DOCX: NOT reliable. Word documents are reflowable -- there is no
-      stored "page count" until something actually renders/paginates the
-      file (fonts, margins, page size all affect it), which python-docx
-      does not do. This only counts explicit manual page breaks
-      (`<w:br w:type="page"/>`), so it can under-count (a doc that
-      naturally overflows to page 2 without one won't be caught) but never
-      over-counts -- if it reports >1, that's real evidence, not a guess.
-    - TXT: no notion of a "page" at all (no layout/formatting). Not
-      enforced.
-    """
-    try:
-        if filename.lower().endswith(".pdf"):
-            return len(pypdf.PdfReader(io.BytesIO(content)).pages)
-
-        if filename.lower().endswith(".docx"):
-            doc = docx.Document(io.BytesIO(content))
-            page_breaks = sum(
-                1
-                for br in doc.element.body.iter(qn("w:br"))
-                if br.get(qn("w:type")) == "page"
-            )
-            return page_breaks + 1
-
-    except Exception as e:
-        logger.error(f"Could not determine page count: {e}")
-        return None
-
-    return None
-
-
-# --- Extraction functions inside the API ---
-async def extract_text_from_upload(file: UploadFile) -> tuple[str, bytes]:
-    # Read the file into memory (Bytes)
-    content = await file.read()
-    file_obj = io.BytesIO(content)
-    text = ""
-
-    try:
-        filename = file.filename.lower()
-        if filename.endswith('.pdf'):
-            reader = pypdf.PdfReader(file_obj)
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-
-        elif filename.endswith('.docx'):
-            doc = docx.Document(file_obj)
-            for para in doc.paragraphs:
-                text += para.text + "\n"
-
-        elif filename.endswith('.txt'):
-            text = content.decode('utf-8')
-
-    except Exception as e:
-        logger.error(f"Error extracting text: {e}")
-        return "", content
-
-    return text, content
-
-
-# ---------------------------------
-
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB -- generous for a 1-page resume
-
-
 @app.post("/analyze", dependencies=[Depends(verify_internal_secret)])
 @limiter.limit("10/minute")
 async def start_analysis(request: Request, job_description: str = Form(...), file: UploadFile = File(...)):
@@ -183,20 +103,23 @@ async def start_analysis(request: Request, job_description: str = Form(...), fil
     # 0a. Reject oversized uploads outright -- before anything else touches
     # the file (page-count parsing, text extraction, and especially the OCR
     # fallback, which would otherwise ship a huge payload to Gemini).
-    raw_bytes_preview = await file.read()
-    await file.seek(0)
-    if len(raw_bytes_preview) > MAX_FILE_SIZE_BYTES:
-        logger.info(f"🚫 REJECTED {session_id}: file is {len(raw_bytes_preview)} bytes (limit: {MAX_FILE_SIZE_BYTES})")
+    # Read once here and reuse everywhere below -- no more re-reading via a
+    # second file.read() (which needed a file.seek(0) to undo the first
+    # read) now that extraction is a plain sync function over these bytes,
+    # not something that reads the UploadFile itself.
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        logger.info(f"🚫 REJECTED {session_id}: file is {len(content)} bytes (limit: {MAX_FILE_SIZE_BYTES})")
         raise HTTPException(
             status_code=400,
-            detail=f"⛔ REJECTED: File too large ({len(raw_bytes_preview) / 1_048_576:.1f} MB). Max size is {MAX_FILE_SIZE_BYTES // 1_048_576} MB.",
+            detail=f"⛔ REJECTED: File too large ({len(content) / 1_048_576:.1f} MB). Max size is {MAX_FILE_SIZE_BYTES // 1_048_576} MB.",
         )
 
     # 0b. Reject multi-page resumes outright, before spending any effort on
     # extraction/OCR. A resume should fit on one page -- see count_pages()
     # for what's actually reliable per file type (PDF: exact; DOCX:
     # best-effort; TXT: unenforced).
-    page_count = count_pages(file.filename, raw_bytes_preview)
+    page_count = count_pages(file.filename, content)
     if page_count is not None and page_count > MAX_RESUME_PAGES:
         logger.info(f"🚫 REJECTED {session_id}: resume has {page_count} pages (limit: {MAX_RESUME_PAGES})")
         raise HTTPException(
@@ -209,7 +132,7 @@ async def start_analysis(request: Request, job_description: str = Form(...), fil
         )
 
     # 1. Extract the text in memory (without saving a file)
-    resume_text, raw_bytes = await extract_text_from_upload(file)
+    resume_text = extract_text_from_content(file.filename, content)
 
     # 1b. OCR fallback: the PDF may be a scanned/photographed resume with no
     # extractable text layer -- hand the raw bytes to Gemini directly instead
@@ -221,7 +144,7 @@ async def start_analysis(request: Request, job_description: str = Form(...), fil
             from agno.media import File as AgnoFile
             from app.agents import resume_ocr_agent
 
-            ocr_file = AgnoFile(content=raw_bytes, mime_type="application/pdf")
+            ocr_file = AgnoFile(content=content, mime_type="application/pdf")
             ocr_result = resume_ocr_agent.run("Transcribe this resume.", files=[ocr_file])
             resume_text = str(ocr_result.content or "").strip()
         except Exception as e:
