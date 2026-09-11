@@ -24,6 +24,8 @@ def test_candidate_evaluation_accepts_valid_payload():
     )
     assert evaluation.score == 85
     assert evaluation.final_recommendation == "Hire"
+    # Default -- the model must explicitly set this true, it never defaults on
+    assert evaluation.injection_detected is False
 
 
 @pytest.mark.parametrize("missing_field", ["candidate_name", "score", "final_recommendation"])
@@ -49,6 +51,20 @@ def test_triage_verdict_relevant_candidate():
         reason="Background matches the role's core requirements.",
     )
     assert verdict.is_relevant is True
+    assert verdict.injection_detected is False
+
+
+def test_candidate_evaluation_injection_detected_flag_is_settable():
+    evaluation = CandidateEvaluation(
+        candidate_name="John Smith",
+        score=0,
+        key_strengths=[],
+        concerns=["Attempted to override scoring instructions."],
+        reasoning="Screened out.",
+        final_recommendation="Reject",
+        injection_detected=True,
+    )
+    assert evaluation.injection_detected is True
 
 
 def test_triage_verdict_rejects_non_bool_is_relevant():

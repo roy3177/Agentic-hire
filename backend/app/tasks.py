@@ -98,6 +98,7 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
                 "concerns": [triage_result.reason],
                 "reasoning": f"Automatically screened out during triage: {triage_result.reason}",
                 "final_recommendation": "Reject",
+                "injection_detected": triage_result.injection_detected,
             }
             pipeline_span.set_attribute("triage_screened_out", True)
             total_duration = time.perf_counter() - pipeline_start

@@ -30,6 +30,10 @@ interface CandidateEvaluation {
     concerns: string[];
     reasoning: string;
     final_recommendation: 'Strong Hire' | 'Hire' | 'Caution' | 'Reject';
+    // Structured flag the model sets explicitly (see backend/app/schemas.py)
+    // -- only true for a genuine, unambiguous prompt-injection attempt, never
+    // just a strong/impressive resume.
+    injection_detected?: boolean;
 }
 
 interface Task {
@@ -47,6 +51,7 @@ export default function AgenticDashboard() {
     const [selectedCandidate, setSelectedCandidate] = useState<CandidateEvaluation | null>(null);
     const [jobDescription, setJobDescription] = useState<string>("");
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const [injectionAlert, setInjectionAlert] = useState<CandidateEvaluation | null>(null);
 
     // UI State for Drag & Drop
     const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -76,6 +81,16 @@ export default function AgenticDashboard() {
         // Upload Loop
         for (let i = 0; i < filesArray.length; i++) {
             const file = filesArray[i];
+            // Capture THIS file's own temp id (created above, one per file in
+            // the same order) -- matching on it below, instead of on
+            // filename+status, is what keeps two files with the same name
+            // from being conflated. Before this fix, every card still sitting
+            // at 'uploading' (i.e. every card whose own request hadn't
+            // resolved yet) with a matching filename got overwritten with
+            // whichever response came back first -- their real session_ids
+            // were then never recorded, and polling kept re-fetching the same
+            // one session for every such card.
+            const tempId = newTasks[i].id;
             const formData = new FormData();
             formData.append('file', file);
             formData.append('job_description', jobDescription);
@@ -85,7 +100,7 @@ export default function AgenticDashboard() {
                 const { session_id } = response.data;
 
                 setTasks(prev => prev.map(t =>
-                    t.filename === file.name && t.status === 'uploading'
+                    t.id === tempId
                         ? { ...t, id: session_id, status: 'pending' }
                         : t
                 ));
@@ -107,7 +122,7 @@ export default function AgenticDashboard() {
                 }
                 setUploadError(message);
 
-                setTasks(prev => prev.map(t => t.filename === file.name ? { ...t, status: 'failed' } : t));
+                setTasks(prev => prev.map(t => t.id === tempId ? { ...t, status: 'failed' } : t));
             }
         }
     };
@@ -161,6 +176,14 @@ export default function AgenticDashboard() {
                 try {
                     const res = await axios.get(`/api/status/${task.id}`);
                     if (res.data.status !== task.status || (res.data.status === 'completed' && !task.data)) {
+                        // Pop the red alert exactly once, right when this result
+                        // first lands as 'completed' -- checked against !task.data
+                        // (the pre-update task) so a later unrelated re-render
+                        // never re-triggers it for the same candidate.
+                        if (res.data.status === 'completed' && !task.data && res.data.result?.injection_detected) {
+                            setInjectionAlert(res.data.result);
+                        }
+
                         setTasks(prev => prev.map(t => {
                             if (t.id === task.id) {
                                 return {
@@ -534,6 +557,48 @@ export default function AgenticDashboard() {
                             <button
                                 onClick={() => setUploadError(null)}
                                 className="w-full px-5 py-3 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all duration-300 ease-in-out shadow-sm shadow-rose-600/20"
+                            >
+                                {t.close}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Prompt-Injection Alert -- pops when a completed result comes
+                back with injection_detected=true (a structured flag the model
+                itself sets, see backend/app/schemas.py -- not a frontend
+                heuristic on free text, to avoid false positives on merely
+                impressive resumes). Separate from Upload Rejected: this fires
+                well after upload succeeds, once the async pipeline finishes. */}
+            {injectionAlert && (
+                <div className="fixed inset-0 bg-red-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-[fadeIn_0.2s_ease-out]">
+                    <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-red-600 animate-[scaleIn_0.25s_cubic-bezier(0.16,1,0.3,1)] text-center">
+                        <button
+                            onClick={() => setInjectionAlert(null)}
+                            className="absolute top-4 end-4 p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all duration-300 ease-in-out"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="px-8 pt-10 pb-6">
+                            <div className="mx-auto w-16 h-16 rounded-full bg-red-100 ring-8 ring-red-100/60 flex items-center justify-center mb-5 animate-pulse">
+                                <AlertTriangle className="w-8 h-8 text-red-600" />
+                            </div>
+                            <h2 className="text-xl font-bold text-red-700 mb-2.5">🚨 {t.injectionAlertTitle}</h2>
+                            <p className="text-gray-600 leading-relaxed mb-4">{t.injectionAlertBody}</p>
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-start">
+                                <div className="text-sm font-semibold text-gray-900 mb-1">
+                                    {injectionAlert.candidate_name}
+                                </div>
+                                <div className="text-xs text-gray-600">{injectionAlert.reasoning}</div>
+                            </div>
+                        </div>
+
+                        <div className="p-5 border-t border-gray-100 bg-red-50/60">
+                            <button
+                                onClick={() => setInjectionAlert(null)}
+                                className="w-full px-5 py-3 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all duration-300 ease-in-out shadow-sm shadow-red-600/20"
                             >
                                 {t.close}
                             </button>

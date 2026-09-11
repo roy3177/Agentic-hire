@@ -158,6 +158,8 @@ export const dashboardText: Record<Language, {
     uploadErrorTitle: string;
     uploadErrorGeneric: string;
     startHereBadge: string;
+    injectionAlertTitle: string;
+    injectionAlertBody: string;
 }> = {
     en: {
         tagline: 'AI Recruitment Copilot',
@@ -203,6 +205,8 @@ export const dashboardText: Record<Language, {
         uploadErrorTitle: 'Upload Rejected',
         uploadErrorGeneric: 'Something went wrong while uploading this file. Please try again.',
         startHereBadge: 'Start here',
+        injectionAlertTitle: 'Manipulation Attempt Detected',
+        injectionAlertBody: 'This resume contained an embedded instruction attempting to manipulate the AI evaluation (e.g. forcing a high score or a specific recommendation). The attempt was detected and ignored — the candidate was scored on their actual, genuine content.',
     },
     he: {
         tagline: 'קופיילוט גיוס מבוסס AI',
@@ -248,5 +252,7 @@ export const dashboardText: Record<Language, {
         uploadErrorTitle: 'ההעלאה נדחתה',
         uploadErrorGeneric: 'משהו השתבש בהעלאת הקובץ. נסו שוב.',
         startHereBadge: 'התחילו כאן',
+        injectionAlertTitle: 'זוהה ניסיון תמרון',
+        injectionAlertBody: 'קורות החיים האלה הכילו הוראה מוטמעת שניסתה לתמרן את הערכת ה-AI (למשל לכפות ציון גבוה או המלצה מסוימת). הניסיון זוהה ונוטרל — המועמד/ת הוערך/ה לפי התוכן האמיתי בלבד.',
     },
 };
