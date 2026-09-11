@@ -30,11 +30,18 @@ export async function POST(request: NextRequest) {
 
         console.log(`📄 File received: ${(file as File).name}, Size: ${(file as File).size} bytes`);
 
-        // 3. Send to Python (Fetch handles the headers automatically — that's the magic)
+        // 3. Send to Python (Fetch handles the multipart Content-Type/boundary
+        // headers automatically — don't set that one manually). The internal
+        // API secret IS added explicitly: it's a server-side-only env var
+        // (never shipped to the browser bundle), so only this Next.js server
+        // can produce it -- proves the request came through our own proxy,
+        // not a direct curl/script call to the backend.
         const response = await fetch(`${BACKEND_API_URL}/analyze`, {
             method: 'POST',
             body: formData,
-            // Very important: do not set headers manually here! fetch will handle it correctly.
+            headers: {
+                'X-Internal-Api-Key': process.env.INTERNAL_API_SECRET || '',
+            },
         });
 
         // 4. Handle the response from Python

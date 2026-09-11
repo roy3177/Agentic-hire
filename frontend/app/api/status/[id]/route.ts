@@ -15,7 +15,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
 
     try {
-        const response = await axios.get(`${BACKEND_API_URL}/status/${id}`);
+        const response = await axios.get(`${BACKEND_API_URL}/status/${id}`, {
+            headers: { 'X-Internal-Api-Key': process.env.INTERNAL_API_SECRET || '' },
+        });
         return NextResponse.json(response.data);
 
     } catch (error: unknown) {

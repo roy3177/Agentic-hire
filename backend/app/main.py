@@ -10,7 +10,7 @@ import pypdf
 import docx
 from docx.oxml.ns import qn
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, Depends
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -62,6 +62,34 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": "⏳ Too many requests. Please wait a minute and try again."},
     )
+
+
+# --- Internal API secret ---
+# Only the Next.js server (frontend/app/api/*/route.ts -- never the browser
+# bundle) knows this value, sent as a header on every proxied request. This
+# doesn't gate real end users at all (the site stays login-free) -- it only
+# stops someone calling this API directly (curl/Postman/a script) bypassing
+# the frontend entirely.
+#
+# Fails OPEN (unprotected, with a loud warning) if the env var isn't set at
+# all, rather than rejecting every request outright -- so local dev/testing
+# without it configured keeps working exactly as it did before this change.
+# In production this variable MUST be set (Railway env vars) for this to
+# actually protect anything; an unset var there is a silent no-op, not an
+# error, so it's easy to forget -- hence the startup warning below.
+INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET")
+
+if not INTERNAL_API_SECRET:
+    logger.warning(
+        "⚠️ INTERNAL_API_SECRET is not set — /analyze and /status are "
+        "UNPROTECTED right now. Fine for local dev, but this MUST be set "
+        "in production for this check to do anything."
+    )
+
+
+async def verify_internal_secret(x_internal_api_key: Optional[str] = Header(default=None)):
+    if INTERNAL_API_SECRET and x_internal_api_key != INTERNAL_API_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @app.on_event("startup")
@@ -146,7 +174,7 @@ async def extract_text_from_upload(file: UploadFile) -> tuple[str, bytes]:
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB -- generous for a 1-page resume
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(verify_internal_secret)])
 @limiter.limit("10/minute")
 async def start_analysis(request: Request, job_description: str = Form(...), file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
@@ -230,7 +258,7 @@ async def start_analysis(request: Request, job_description: str = Form(...), fil
     return {"session_id": session_id, "status": "processing"}
 
 
-@app.get("/status/{session_id}")
+@app.get("/status/{session_id}", dependencies=[Depends(verify_internal_secret)])
 async def get_status(session_id: str):
     db = SessionLocal()
     try:
