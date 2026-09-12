@@ -304,7 +304,8 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
         # same run's injection attempt above -- avoids two Discord messages
         # for one underlying attempt when the candidate was also relevant
         # enough to keep going through Parser/Analyst/Synthesis.
-        if not triage_flagged_injection and final_json_dict.get("injection_detected"):
+        synthesis_flagged_injection = bool(final_json_dict.get("injection_detected"))
+        if not triage_flagged_injection and synthesis_flagged_injection:
             pipeline_span.set_attribute("injection_detected", True)
             logger.info("   🚨 EDGE CASE: prompt-injection attempt detected at Synthesis — alerting Discord")
             send_security_alert(
@@ -313,6 +314,24 @@ def run_analysis_pipeline(session_id: str, resume_text: str, job_description: st
                 f"Candidate: {final_json_dict.get('candidate_name', 'unknown')}\n"
                 f"Reasoning: {final_json_dict.get('reasoning', '')}"
             )
+
+        # Hard override, independent of whatever Synthesis itself scored: a
+        # detected injection attempt (flagged at Triage OR Synthesis) always
+        # zeroes the candidate out and forces Reject. We don't rely on the
+        # Langfuse prompt telling the LLM to self-penalize for this -- that's
+        # a soft instruction the model can be talked out of by the very
+        # injection it's supposed to catch. Enforcing it here in code makes
+        # it unconditional: any detected attempt gets 0, never a partial
+        # deduction.
+        if triage_flagged_injection or synthesis_flagged_injection:
+            if final_json_dict.get("score") != 0 or final_json_dict.get("final_recommendation") != "Reject":
+                logger.info(
+                    f"   🚨 EDGE CASE: forcing score {final_json_dict.get('score', 'n/a')} → 0 "
+                    "and recommendation → Reject due to detected prompt injection"
+                )
+            final_json_dict["score"] = 0
+            final_json_dict["final_recommendation"] = "Reject"
+            final_json_dict["injection_detected"] = True
 
         _log_banner(
             f"✅ PIPELINE COMPLETE — session {session_id} — total {total_duration:.2f}s",
