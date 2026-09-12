@@ -1,3 +1,12 @@
+/**
+ * @author: Roy Meoded
+ * @ date: 2026-09-12
+ * @description: This is the API route for fetching the status of a specific job application. 
+ * It acts as a proxy between the frontend and the backend.
+ * 
+ */
+
+
 import { NextRequest, NextResponse } from 'next/server';
 import axios, { AxiosError } from 'axios';
 

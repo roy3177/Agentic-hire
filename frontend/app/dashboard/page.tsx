@@ -1,3 +1,12 @@
+/**
+ * @author: Roy Meoded
+ * @ date: 2026-09-12
+ * @description: This is the API route for analyzing resumes. It acts as a proxy between the frontend and the backend.
+ * In addition to forwarding the request, it also handles error responses from the backend and surfaces them to the frontend 
+ * in a user-friendly manner.
+ */
+
+
 "use client";
 
 import React, { useState, useEffect, ChangeEvent, DragEvent } from 'react';

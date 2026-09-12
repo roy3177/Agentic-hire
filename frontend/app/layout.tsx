@@ -1,3 +1,10 @@
+/**
+ * @author: Roy Meoded
+ * @ date: 2026-09-12
+ * @description: This is the root layout for the application. It sets up global styles, fonts, and metadata for the app.
+ * 
+ */
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
