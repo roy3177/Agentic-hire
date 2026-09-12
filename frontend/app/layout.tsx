@@ -7,7 +7,6 @@
 
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-// @ts-expect-error Global CSS is handled by Next.js at build time.
 import "./globals.css";
 import { LanguageProvider } from "./i18n/LanguageContext";
 
