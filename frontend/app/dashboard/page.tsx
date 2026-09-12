@@ -31,7 +31,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { dashboardText } from '../i18n/translations';
 
 // --- Interfaces ---
-
+// Represents the evaluation result for a candidate, as returned by the backend:
 interface CandidateEvaluation {
     candidate_name: string;
     score: number;
@@ -45,6 +45,7 @@ interface CandidateEvaluation {
     injection_detected?: boolean;
 }
 
+// Represents a task in the upload/analysis pipeline:
 interface Task {
     id: string;
     filename: string;
@@ -222,6 +223,7 @@ export default function AgenticDashboard() {
         .filter(t => t.status === 'completed' && t.data)
         .sort((a, b) => (b.data?.score || 0) - (a.data?.score || 0));
 
+    // Active tasks are those that are still in the pipeline (not completed or failed):
     const activeTasks = tasks.filter(t => ['pending', 'processing', 'uploading'].includes(t.status));
 
     const avgScore = completedTasks.length > 0

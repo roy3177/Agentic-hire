@@ -1,3 +1,10 @@
+/**
+@author: Roy Meoded
+@date: 2026-09-12
+@description: This is the global CSS file for the frontend application. It defines global styles,
+  including theme variables, font settings, and animations. It also imports Tailwind CSS for utility-first styling.
+**/
+
 @import "tailwindcss";
 
 :root {
