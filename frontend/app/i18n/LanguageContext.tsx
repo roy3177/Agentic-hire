@@ -1,3 +1,14 @@
+/**
+ * @author: Roy Meoded
+ * @ date: 2026-09-12
+ * @description: This is the LanguageContext component. 
+ * It provides a context for managing the application's language state, allowing components to access 
+ * and modify the current language setting. 
+ * It also handles persisting the language preference in localStorage and applying the appropriate 
+ * text direction (LTR or RTL) based on the selected language.
+ * 
+ */
+
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';

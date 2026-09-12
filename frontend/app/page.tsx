@@ -1,3 +1,10 @@
+/**
+ * @author: Roy Meoded
+ * @date: 2026-09-12
+ * @description: This is the main landing page for the Agentic Hire application. It includes a hero section, 
+ * features, agents, how it works, a call-to-action banner, and a footer with about information.
+ */
+
 "use client";
 
 import React, { useState } from 'react';

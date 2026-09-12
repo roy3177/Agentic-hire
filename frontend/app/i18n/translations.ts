@@ -1,3 +1,10 @@
+/**
+ * @author: Roy Meoded
+ * @ date: 2026-09-12
+ * @description: This file contains the translations for the application in both English and Hebrew.
+ * 
+ */
+
 import type { Language } from './LanguageContext';
 
 export const landingText: Record<Language, {
